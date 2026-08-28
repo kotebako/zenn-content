@@ -1,8 +1,8 @@
 ---
 title: "分割して読み込むと壊れるCSVパーサーを、壊れないようにする"
-emoji: "🔪"
+emoji: "🧩"
 type: "tech"
-topics: ["javascript", "csv", "個人開発", "フロントエンド", "パーサー"]
+topics: ["javascript", "csv", "個人開発", "フロントエンド"]
 published: true
 ---
 
