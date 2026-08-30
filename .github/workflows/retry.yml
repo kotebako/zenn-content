@@ -1,0 +1,65 @@
+name: 未公開の記事を再デプロイ
+
+# Zenn には1日あたりの投稿数上限があり、超えた記事は「デプロイ成功」と表示
+# されたまま publish だけが見送られる。リポジトリ側は正しいので、翌日に
+# もう一度 push すれば公開される。
+#
+# それを毎日自動でやる。荻原さんのMacは関係なく、GitHubのサーバーで動く。
+
+on:
+  schedule:
+    - cron: '0 21 * * *'      # 毎日 06:00 JST（制限は日付で解ける）
+  workflow_dispatch:
+
+permissions:
+  contents: write             # 再デプロイ用のコミットを積むため
+
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: リポジトリと Zenn の差分を調べる
+        id: diff
+        run: |
+          set -u
+          # published: true の記事のスラッグ
+          local_slugs=$(for f in articles/*.md; do
+            grep -q '^published: *true' "$f" && basename "$f" .md
+          done | sort)
+
+          # Zenn が実際に公開しているスラッグ
+          live_slugs=$(curl -s -m 30 'https://zenn.dev/api/articles?username=kotebako&order=latest' \
+            | python3 -c 'import json,sys; print("\n".join(a["slug"] for a in json.load(sys.stdin).get("articles",[])))' \
+            | sort)
+
+          missing=$(comm -23 <(echo "$local_slugs") <(echo "$live_slugs"))
+
+          echo "  リポジトリ側で公開設定のもの:"
+          echo "$local_slugs" | sed 's/^/    /'
+          echo "  Zenn が公開しているもの:"
+          echo "$live_slugs" | sed 's/^/    /'
+
+          if [ -n "$missing" ]; then
+            echo "  まだ公開されていない:"
+            echo "$missing" | sed 's/^/    /'
+            echo "missing=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "  すべて公開済み。何もしません"
+            echo "missing=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 再デプロイを促す
+        if: steps.diff.outputs.missing == 'yes'
+        run: |
+          set -u
+          # 記事そのものは書き換えない。Zenn は push を合図にデプロイするので、
+          # 記事の外のファイルを更新して再処理を起こす。
+          date -u '+%Y-%m-%dT%H:%M:%SZ' > .last-retry
+          git config user.name  'kotebako'
+          git config user.email '322007020+kotebako@users.noreply.github.com'
+          git add .last-retry
+          git commit -m "未公開の記事があるため再デプロイ" || exit 0
+          git push
+          echo "  push しました。Zenn 側の制限が解けていれば公開されます"
